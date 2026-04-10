@@ -1,0 +1,173 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Users & Roles ───────────────────────────────────────────
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  role          Role     @default(EMPLOYEE)
+  department    String?
+  title         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  requests      TravelRequest[]  @relation("Requester")
+  approvals     Approval[]       @relation("Approver")
+  managedDepts  Department[]     @relation("DeptManager")
+}
+
+enum Role {
+  EMPLOYEE
+  MANAGER
+  FINANCE
+  ADMIN
+}
+
+model Department {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  code      String   @unique
+  managerId String?
+  manager   User?    @relation("DeptManager", fields: [managerId], references: [id])
+
+  glAccounts GLAccount[]
+}
+
+// ─── GL / Finance ────────────────────────────────────────────
+
+model GLAccount {
+  id           String     @id @default(cuid())
+  code         String     @unique
+  name         String
+  departmentId String?
+  department   Department? @relation(fields: [departmentId], references: [id])
+
+  expenses     Expense[]
+}
+
+// ─── Travel Request (the core record) ────────────────────────
+
+model TravelRequest {
+  id                   String        @id @default(cuid())
+  requestNumber        String        @unique @default(cuid())
+  status               RequestStatus @default(DRAFT)
+  currentApproverLevel Int           @default(0)
+
+  // Trip details
+  purpose         String
+  destination     String
+  departureDate   DateTime
+  returnDate      DateTime
+  notes           String?
+
+  // Requester
+  requesterId     String
+  requester       User          @relation("Requester", fields: [requesterId], references: [id])
+
+  // Financial
+  estimatedTotal  Float         @default(0)
+  actualTotal     Float         @default(0)
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  // Relations
+  estimates       Expense[]     @relation("EstimatedExpenses")
+  actuals         Expense[]     @relation("ActualExpenses")
+  approvals       Approval[]
+}
+
+enum RequestStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  TRAVEL_COMPLETE
+  REIMBURSEMENT_PENDING
+  REIMBURSEMENT_APPROVED
+  AP_PROCESSING
+  PAID
+  REJECTED
+  CANCELLED
+}
+
+// ─── Expenses (pre-trip estimates & post-trip actuals) ───────
+
+model Expense {
+  id          String      @id @default(cuid())
+  type        ExpenseType
+  phase       ExpensePhase
+
+  description String
+  amount      Float
+  category    ExpenseCategory
+  receiptUrl  String?
+
+  // GL coding
+  glAccountId String?
+  glAccount   GLAccount?  @relation(fields: [glAccountId], references: [id])
+
+  // Links to request
+  estimateForId String?
+  estimateFor   TravelRequest? @relation("EstimatedExpenses", fields: [estimateForId], references: [id])
+
+  actualForId   String?
+  actualFor     TravelRequest? @relation("ActualExpenses", fields: [actualForId], references: [id])
+
+  createdAt   DateTime    @default(now())
+}
+
+enum ExpenseType {
+  ESTIMATE
+  ACTUAL
+}
+
+enum ExpensePhase {
+  PRE_TRIP
+  POST_TRIP
+}
+
+enum ExpenseCategory {
+  AIRFARE
+  HOTEL
+  MEALS
+  GROUND_TRANSPORT
+  RENTAL_CAR
+  FUEL
+  PARKING
+  REGISTRATION
+  BAGGAGE
+  OTHER
+}
+
+// ─── Approval Chain ──────────────────────────────────────────
+
+model Approval {
+  id          String         @id @default(cuid())
+  level       Int
+  status      ApprovalStatus @default(PENDING)
+  comments    String?
+
+  approverId  String
+  approver    User           @relation("Approver", fields: [approverId], references: [id])
+
+  requestId   String
+  request     TravelRequest  @relation(fields: [requestId], references: [id])
+
+  decidedAt   DateTime?
+  createdAt   DateTime       @default(now())
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
